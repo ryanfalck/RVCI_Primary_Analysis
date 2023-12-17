@@ -1,0 +1,922 @@
+---
+title: "Reshaping Vascular Cognitive Impairment (RVCI)"
+author: "Ryan Stanley Falck"
+date: "2023-03-27"
+output: 
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1) Initial Data Management
+
+```{r message=FALSE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(readxl, plyr, lme4, robustlmm, car, broom, lsmeans, ggplot2, psych,tableone, naniar,
+               expss, HLMdiag, tableone,mice,extrafont,gtsummary,ggthemes,patchwork,modelsummary, lmerTest)
+setwd("~/Desktop/UBC-Postdoctoral Fellowship/RVCI")#Directory where you put the spreadsheet
+RVCI <- read_excel("REVISED RVCI MASTER - March 27, 2023.xlsx")
+spaceless <- function(x) {colnames(x) <- gsub(" ", "_", colnames(x));x}
+data1<-spaceless(RVCI)
+data2<-data1[c(1:3,35,36,37,38,40,44,104,109:114,116:119,124,125,
+               126:129,140,142,157,158,160:164,4:12,15,18,19,20,24,25,27,28,31,33,50:64,165:175,
+               68,176,95:102)]
+
+data3<-rename(data2, c("Average_Sitting_Height_(cm)" = "Average_Seated_Height",
+                       "Average_Standing_Height_(cm)" = "Average_Standing_Height",
+                        "BMI_(kg/m^2)"="BMI", "Education_Level"="Education",
+                       "Currently_Smoke"="Current_Smoker","Smoked_in_the_Past"="Past_Smoker",
+                       "#_of_Prescription_Meds"="Prescription_Meds_#","OSA_Diagnosis"="OSA",
+                       "COVID-19_History"="COVID_History", "COVID-19_Onset"="COVID_Onset",
+                       "COVID-19_Symptom_Severity"="COVID_Severity","COVID-19_Vaccine"="COVID_Vaccine",
+                       "CES-D_Total_Score"="CESD_Total_Score",
+                       "ADAS_Cog_Total_Score"="ADAS_Cog_Total","Trails_B_minus_A"="Trails_BA",
+                       "Forward_Minus_Backward"="DSFB","Stroop_3-Stroop_2_Time"="Stroop_3_2",
+                       "DSST_Score"="DSST","MMSE_TOTAL_SCORE"="MMSE","MoCA_Total_Score"="MoCA",
+                       "PSM_Age-Corrected_Standard_Score"="PSM_Age_Corrected",
+                       "Gait_speed_from_ROLLING_start:"="Gait_Speed","4.0m_walk_aids_used?"="Gait_speed_walk_aids",
+                       "Total_SPPB_Score"="SPPB","Able_to_do_1_repetition_of_sit-to-stand_with_arms_across_chest?"="Sit_Stand_able",
+                       "Adaptations"="Sit_Stand_adaptations","Chair_Stand_Total_Repetitions"="Sit_Stand",
+                       "Distance_walked_(meters)"="Meters_walked","Non-HDL"="Non_HDL","C-Reactive_Protein"="CRP"))
+
+
+#Education
+data3$EDU<-NULL
+data3$EDU[data3$Education==1]<- "High School or Less"
+data3$EDU[data3$Education==2]<- "High School or Less"
+data3$EDU[data3$Education==3]<- "High School or Less"
+data3$EDU[data3$Education==4]<- "Trade School or Some College"
+data3$EDU[data3$Education==5]<- "Trade School or Some College"
+data3$EDU[data3$Education==6]<- "University Degree or Higher"
+
+
+#Smoking Status
+data3$Smoking_Status<-NULL
+data3$Smoking_Status[data3$Current_Smoker==1]<-"Current Smoker"
+data3$Smoking_Status[data3$Past_Smoker==1]<-"Past Smoker"
+data3$Smoking_Status[data3$Current_Smoker==0 & data3$Past_Smoker==0]<-"Non-Smoker"
+
+# Get rid of "dropout" labels, validate data types, create normalized gait speed variable
+
+library(dplyr)
+data4<-data3 %>%
+  mutate(Age = as.numeric(Age),
+         BMI = as.numeric(BMI),
+         Waist_to_Hip_Ratio =as.numeric(Waist_to_Hip_Ratio),
+         FCI_Total= as.numeric(FCI_Total),
+         PSQI_Total_Score = as.numeric(PSQI_Total_Score),
+         CESD_Total_Score = as.numeric(CESD_Total_Score),
+         STOP_Bang_Score = as.numeric(STOP_Bang_Score),
+         ADAS_COG_Plus_DSST_Clock = as.numeric(`glob_i_DSST+Clock`),
+         ADAS_COG_Plus_DSST = as.numeric(glob_i_DSST),
+         ADAS_COG_Plus_Clockonly = as.numeric(glob_i_Clock),
+         ADAS_COG_Plus_none = as.numeric(glob_i_None),
+         ADAS_COG_Plus_DSSTClock_se = as.numeric(`se_glob_i_DSST+Clock`),
+         ADAS_COG_Plus_DSST_se = as.numeric(se_glob_i_DSST),
+         ADAS_COG_Plus_none_se = as.numeric(se_glob_i_None),
+         ADAS_COG_Plus_Clockonly_se = as.numeric(se_glob_i_Clock),
+         ADAS_Cog_Total = as.numeric(ADAS_Cog_Total),
+         Trails_BA = as.numeric(Trails_BA),
+         DSFB = as.numeric(DSFB),
+         Animals_Total = as.numeric(Animals_Total),
+         Vegetable_Total = as.numeric(Vegetable_Total),
+         Stroop_3_2 = as.numeric(Stroop_3_2),
+         DSST = as.numeric(DSST),
+         MMSE = as.numeric(MMSE),
+         MoCA = as.numeric(MoCA),
+         PSM_Age_Corrected = as.numeric(PSM_Age_Corrected),
+         Avg_Grip_Strength = as.numeric(Average_Grip_Strength),
+         Gait_Speed = as.numeric(Gait_Speed),
+         SPPB = as.numeric(SPPB),
+         Sit_Stand = as.numeric(Sit_Stand),
+         Mean_TUG = as.numeric(Mean_TUG),
+         Meters_walked = as.numeric(Meters_walked),
+         PPA_Score = as.numeric(PPA_Score),
+         CF_PWV = as.numeric(CF_PWV),
+         Cholesterol = as.numeric(Cholesterol),
+         Triglycerides = as.numeric(Triglycerides),
+         HDL_Cholesterol = as.numeric(HDL_Cholesterol),
+         LDL_Cholesterol = as.numeric(LDL_Cholesterol),
+         Non_HDL = as.numeric(Non_HDL),
+         CRP = as.numeric(CRP),
+         Hemoglobin_A1c = as.numeric(Hemoglobin_A1c),
+         Avg_Resting_Diastolic = as.numeric(Avg_Resting_Diastolic),
+         Avg_Resting_Systolic = as.numeric(Avg_Resting_Systolic),
+         PSM_Computed_Score =as.numeric(PSM_Computed_Score),
+         Framingham_Risk_Score_BMI = as.numeric(Framingham_Risk_Score_BMI),
+         Framingham_Risk_Score_Blood_Panel = as.numeric(Framingham_Risk_Score_Blood_Panel),
+         Fazekas_Score = as.numeric(Fazekas_Score),
+         WMH_Total_Volume_ln = log(as.numeric(WMH_Total_Volume)),
+         WMH_voxels = as.numeric(WMH_voxels),
+         Diabetes = as.factor(Diabetes),
+         Hypertension = as.factor(Hypertension),
+         Fasting_Glucose = as.numeric(Fasting_Glucose),
+         Leg_length = Average_Standing_Height - Average_Seated_Height,
+         Normalized_GaitSpeed = Gait_Speed/Leg_length,
+         Overall_Compliance = as.numeric(Overall_Compliance),
+         PASE = as.numeric(PASE),
+         Compliance_accounting_for_dropout = as.numeric(Compliance_accounting_for_dropout),
+         across(where(is.character), ~na_if(., "Dropout")),
+         across(where(is.character), ~na_if(., "NA")),
+         across(where(is.character), ~na_if(., "DNC")),)
+
+#Fezeka score imputation for missing data at baseline
+data4$Fazekas_Score[data4$ID=="RVCI_086" & data4$Timepoint=="Baseline"]<-median(data4$Fazekas_Score, na.rm = TRUE)
+data4$Fazekas_Score<-as.factor(data4$Fazekas_Score)
+
+#Identify participants who had COVID during the intervention
+data4$COVID_Infection<-NA
+data4$COVID_Infection[data4$ID =="RVCI_079" | data4$ID =="RVCI_080" | data4$ID == "RVCI_081" | data4$ID == "RVCI_090"] <- "Yes"
+data4$COVID_Infection[data4$ID !="RVCI_079" & data4$ID !="RVCI_080" & data4$ID != "RVCI_081" & data4$ID != "RVCI_090"] <- "No"
+```
+
+
+# 2)  Baseline Characteristics
+
+```{r}
+Tableone.df<-subset(data4, Timepoint=="Baseline")
+Tableone.df2<-subset(Tableone.df, ID != "RVCI_035" & ID != "RVCI_088")
+
+
+vars<-dput(names(Tableone.df2[c(4,5,8,9,91,92,105,15,19:22,76,77,
+                                27:29,32:35,75,79,80,93:100,44:55,81,
+                                82,101,58,60,63:74,83:90)]))
+
+Table1_continuous<-CreateTableOne(vars=vars, strata = "Group", data=Tableone.df2)
+print(Table1_continuous,contDigits=2,missing=TRUE,quote=TRUE)
+```
+
+
+# 3) Data set-up for linear mixed model
+
+```{r}
+data5 <- data4[c(1:5,8,9,91,92,105,15,19:22,76,77,
+                 27:29,31:35,79,80,93:100,44:55,75,81,
+                 82,101,58,60,63:74,83:90)]
+
+varying<-data5[c(1,3,28:73:length(data5))]
+baseline<-subset(data5[-c(28:73:length(data5))], Timepoint=="Baseline")
+
+varying.1 <- subset(varying,Timepoint=="Baseline")
+varying.2 <- subset(varying,Timepoint=="Midpoint")
+varying.3 <- subset(varying,Timepoint=="Final")
+
+colnames(varying.1) <- paste(colnames(varying.1),"1",sep=".")
+colnames(varying.2) <- paste(colnames(varying.2),"2",sep=".")
+colnames(varying.3) <- paste(colnames(varying.3),"3",sep=".")
+
+library(dplyr)
+wide.data <- left_join(baseline,varying.1,by=c("ID"="ID.1")) %>% 
+  left_join(.,varying.2,by=c("ID"="ID.2")) %>% 
+  left_join(.,varying.3,by=c("ID"="ID.3"))
+
+Timevars <- grep("Timepoint",colnames(wide.data),value=TRUE)
+wide.data <- wide.data[,!(colnames(wide.data)%in%Timevars)]
+
+colnames(wide.data) <- (gsub("_","",colnames(wide.data)))
+colnames(wide.data) <- (gsub(".1","baseline",colnames(wide.data)))
+
+#finalize data set by 1) using midpoint values for participants with missing BP or 6MWT; 2) mark missing smoking status as unknown; 3) CRP changed to 0.1 if missing at baseline
+wide.data2<-wide.data %>%
+  mutate(SupinebDBPbaseline = if_else(is.na(SupinebDBPbaseline), SupinebDBP.2, SupinebSBPbaseline),
+         SupinebSBPbaseline = if_else(is.na(SupinebSBPbaseline), SupinebSBP.2, SupinebSBPbaseline),
+         SupinebPPbaseline = if_else(is.na(SupinebPPbaseline),  SupinebPP.2, SupinebPPbaseline),
+         SupinebMAPbaseline = if_else(is.na(SupinebMAPbaseline), SupinebMAP.2, SupinebMAPbaseline),
+         Meterswalkedbaseline = if_else(is.na(Meterswalkedbaseline), Meterswalked.2, Meterswalkedbaseline),
+         AvgRestingSystolicbaseline = if_else(is.na(AvgRestingSystolicbaseline), SupinebSBPbaseline, AvgRestingSystolicbaseline),
+         AvgRestingDiastolicbaseline = if_else(is.na(AvgRestingDiastolicbaseline), SupinebDBPbaseline, AvgRestingDiastolicbaseline),
+         Meterswalkedcov = Meterswalkedbaseline/100,
+         SmokingStatus = replace(SmokingStatus, is.na(SmokingStatus), "Unknown"),
+         CRPbaseline = if_else(is.na(CRPbaseline), median(CRPbaseline, na.rm=TRUE), CRPbaseline),
+         FraminghamRiskScoreBloodPanel = if_else(is.na(FraminghamRiskScoreBloodPanel), FraminghamRiskScoreBMI, FraminghamRiskScoreBloodPanel),
+         FazekasScore2 = as.numeric(FazekasScore),
+         CESDTotalScore = if_else(is.na(CESDTotalScore), median(CESDTotalScore, na.rm=TRUE), CESDTotalScore),
+         Falls = `#ofFallsinlasbaseline2M`,
+         InjuryFalls = `#ofInjuryfromFalls`,
+         Medications = `PrescriptionMeds#`,
+         CFPWVbaseline = if_else(is.na(CFPWVbaseline), median(CFPWVbaseline, na.rm=TRUE), CFPWVbaseline),
+         WMHTotalVolume = if_else(is.na(WMHTotalVolume), median(WMHTotalVolume, na.rm=TRUE), WMHTotalVolume),
+         WMHTotalVolumeln = log(WMHTotalVolume)
+         )
+
+wide.data3<-wide.data2[c(1:72,165:170,73:164)]
+
+
+data6 <- reshape(as.data.frame(wide.data3),idvar="ID",varying=79:170,direction="long",sep=".") #reshape to long data frame with T2 and T3 repeated outcome and baseline as separate time-invariant
+
+data6$Gender<- ifelse(data6$Sex=="Male",1,0)
+
+data6$Group.1<-NA
+data6$Group.1[data6$Group=="RT"]<-1
+data6$Group.1[data6$Group=="BAT"]<-0
+
+final <- subset(data6, ID != "RVCI_035" & ID != "RVCI_088")
+
+final$Dualtaskcost <- final$MeanDualTUGbaseline - final$MeanTUGbaseline
+final$Dualtaskcostpcnt <- final$Dualtaskcost/final$MeanTUGbaseline
+```
+
+Create dataframes for examining within group differences (CON, INT, CON, INT)
+```{r}
+baseline.adasplusDSST.mean <- cbind(c(-0.11, -0.17, -0.11, -0.17))
+baseline.adasplusDSST.se <-cbind(c(0.11, 0.10, 0.11, 0.10))
+
+baseline.adas11.mean <-cbind(c(14.05, 13.42, 14.05, 13.42))
+baseline.adas11.se <-cbind(c(0.86, 0.72, 0.86, 0.72))
+
+baseline.Gait.mean <-cbind(c(1.17, 1.14, 1.17, 1.14))
+baseline.Gait.se <-cbind(c(0.03, 0.04, 0.03, 0.04))
+
+baseline.SPPB.mean <- cbind(c(10.33, 10.24, 10.33, 10.24))
+baseline.SPPB.se <-cbind(c(0.24, 0.22, 0.24, 0.22))
+
+baseline.PPA.mean <-cbind(c(1.63, 1.79, 1.63, 1.79))
+baseline.PPA.se <-cbind(c(0.14, 0.16, 0.14, 0.16))
+
+baseline.Quad.mean <-cbind(c(30.93, 27.47, 30.93, 27.47))
+baseline.Quad.se <-cbind(c(1.83, 1.99, 1.83, 1.99))
+
+baseline.PASE.mean <- cbind(c(112.72, 100.86, 112.72, 100.86))
+baseline.PASE.se <- cbind(c(5.86, 3.97, 5.86, 3.97))
+
+baseline.PWV.mean <- cbind(c(9.82, 10.86, 9.82, 10.86))
+baseline.PWV.se <- cbind(c(0.41, 0.45, 0.41, 0.45))
+
+baseline.TUG.mean <- cbind(c(9.63, 9.54, 9.63, 9.54))
+baseline.TUG.se <- cbind(c(0.41, 0.35, 0.41, 0.35))
+```
+
+
+# 4) Linear Mixed Model (Intention to treat)
+
+## 4.1) Primary outcome (ADAS-Cog Plus)
+
+Function to conduct LMM for outcome
+```{r message=FALSE}
+lmm.ex.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ PASEbaseline + EDU + Sex + ADASCOGPlusDSSTsebaseline +
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov + 
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+PRIMARY OUTCOME: ADAS-Cog Plus
+```{r message=FALSE}
+lmm.ex.mdl("ADASCOGPlusDSST", "ADASCOGPlusDSSTbaseline", baseline.adasplusDSST.mean, baseline.adasplusDSST.se)
+```
+
+
+
+## 4.2) Secondary cognitive outcome (ADAS-Cog 13)
+
+Function to conduct LMM for outcome
+```{r message=FALSE}
+lmm.ex2.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ PASEbaseline + EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov + 
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: ADAS-Cog 13
+```{r message=FALSE}
+lmm.ex2.mdl("ADASCogTotal", "ADASCogTotalbaseline", baseline.adas11.mean, baseline.adas11.se)
+```
+
+
+## 4.3) Secondary physical outcomes (Gait Speed, SPPB, PPA, Quad Strength, PASE, Pulse-Wave Velocity)
+
+Function to conduct LMM for outcomes of gait speed, SPPB, PPA, Quad Strength, PASE, and Pulse-Wave Velocity
+```{r message=FALSE}
+lmm.ex3.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: Gait Speed
+```{r}
+lmm.ex3.mdl("GaitSpeed", "GaitSpeedbaseline", baseline.Gait.mean, baseline.Gait.se)
+```
+
+SECONDARY OUTCOME: SPPB
+```{r}
+lmm.ex3.mdl("SPPB", "SPPBbaseline", baseline.SPPB.mean, baseline.SPPB.se)
+```
+
+SECONDARY OUTCOME: PPA
+```{r message=FALSE}
+lmm.ex3.mdl("PPAScore", "PPAScorebaseline", baseline.PPA.mean, baseline.PPA.se)
+```
+
+SECONDARY OUTCOME: Quad Strength
+```{r message=FALSE}
+lmm.ex3.mdl("MaxQuadStrength", "MaxQuadStrengthbaseline", baseline.Quad.mean, baseline.Quad.se)
+```
+
+SECONDARY OUTCOME: PASE
+```{r message=FALSE}
+lmm.ex3.mdl("PASE", "PASEbaseline", baseline.PASE.mean, baseline.PASE.se)
+```
+
+SECONDARY OUTCOME: Pulse Wave Velocity
+```{r message=FALSE}
+lmm.ex3.mdl("CFPWV", "CFPWVbaseline", baseline.PWV.mean, baseline.PWV.se)
+```
+
+SECONDARY OUTCOME: Timed Up and Go
+```{r message=FALSE}
+lmm.ex3.mdl("MeanTUG", "MeanTUGbaseline", baseline.TUG.mean, baseline.TUG.se)
+```
+
+
+# 5) Complete case analyses: Primary outcome
+
+Exclude non-complete cases
+```{r, message=FALSE, echo=FALSE}
+#Pure Complete Case: Anyone who missed midpoint or final (USE THIS ONE!!!)
+completecases<-subset(final, ID!="RVCI_001" & ID!="RVCI_004" & ID!="RVCI_017" &
+                        ID!="RVCI_030" & ID!="RVCI_049" & ID!="RVCI_050" &
+                        ID!="RVCI_055" & ID!="RVCI_058" & ID!="RVCI_060" & 
+                        ID!="RVCI_062" & ID!="RVCI_066" & ID!="RVCI_067" &
+                        ID!="RVCI_069" & ID!="RVCI_071" & ID!="RVCI_077" &
+                        ID!="RVCI_083" & ID!="RVCI_086")
+```
+
+
+## 5.1) Primary outcome (ADAS-Cog Plus)
+
+Function for LMM
+```{r, message=FALSE, echo=FALSE}
+lmm.cc.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ PASE + EDU + Sex + ADASCOGPlusDSSTsebaseline +
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov +
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= completecases)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+PRIMARY OUTCOME: ADAS-Cog Plus
+```{r message=FALSE, echo=FALSE}
+lmm.cc.mdl("ADASCOGPlusDSST", "ADASCOGPlusDSSTbaseline", baseline.adasplusDSST.mean, baseline.adasplusDSST.se)
+```
+
+## 5.2) Secondary cognitive outcome (ADAS-Cog 13)
+
+Function for LMM
+```{r, message=FALSE, echo=FALSE}
+lmm.cc2.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ PASE + EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov + 
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= completecases)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: ADAS-Cog 13
+```{r, message=FALSE, echo=FALSE}
+lmm.cc2.mdl("ADASCogTotal", "ADASCogTotalbaseline", baseline.adas11.mean, baseline.adas11.se)
+```
+
+
+## 5.3) Secondary physical outcomes (Gait Speed, SPBB, PPA, Quad Strength, PASE score, Pulse Wave Velocity )
+
+Function for LMM
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time) +", cov1, "+ EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel +
+                                  (1|ID)")), data= completecases)
+  means.1 <- lsmeans(model, ~Group|time)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[3])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[4])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: Gait Speed
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("GaitSpeed", "GaitSpeedbaseline", baseline.Gait.mean, baseline.Gait.se)
+```
+
+SECONDARY OUTCOME: SPPB
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("SPPB", "SPPBbaseline", baseline.SPPB.mean, baseline.SPPB.se)
+```
+
+SECONDARY OUTCOME: PPA
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("PPAScore", "PPAScorebaseline", baseline.PPA.mean, baseline.PPA.se)
+```
+
+SECONDARY OUTCOME: QUAD STRENGTH
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("MaxQuadStrength", "MaxQuadStrengthbaseline", baseline.Quad.mean, baseline.Quad.se)
+```
+
+SECONDARY OUTCOME: PASE
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("PASE", "PASEbaseline", baseline.PASE.mean, baseline.PASE.se)
+```
+
+SECONDARY OUTCOME: Pulse Wave Velocity
+```{r, message=FALSE, echo=FALSE}
+lmm.cc3.mdl("CFPWV", "CFPWVbaseline", baseline.PWV.mean, baseline.PWV.se)
+```
+
+SECONDARY OUTCOME: Timed Up and Go
+```{r message=FALSE}
+lmm.cc3.mdl("MeanTUG", "MeanTUGbaseline", baseline.TUG.mean, baseline.TUG.se)
+```
+
+# 6) Compliance Analyses
+
+## 6.1) Primary outcome (ADAS-Cog Plus)
+
+Categorize compliance based on above or below median (High [≥80%] vs. Low [<80%])
+```{r message=FALSE}
+final$Compliance<-NA 
+final$Compliance[final$OverallCompliance>=median(final$OverallCompliance)]<-"High"
+final$Compliance[final$OverallCompliance<median(final$OverallCompliance)]<-"Low"
+```
+
+Function for LMM for Compliance Analysis
+```{r message=FALSE}
+lmm.ex4.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Compliance +", cov1, "+ PASE + EDU + Sex + 
+                                        ADASCOGPlusDSSTsebaseline + FazekasScore + FraminghamRiskScoreBloodPanel + 
+                                        SupinebPPbaseline + Meterswalkedcov + Dualtaskcost +                                      
+                                        GaitSpeedbaseline + (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time|Compliance)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95))
+}
+```
+
+PRIMARY OUTCOME: ADAS-Cog Plus
+```{r message=FALSE}
+lmm.ex4.mdl("ADASCOGPlusDSST", "ADASCOGPlusDSSTbaseline", baseline.adasplusDSST.mean, baseline.adasplusDSST.se)
+```
+
+
+## 6.2) Secondary cognitive outcome (ADAS-Cog 13)
+
+Function for LMM for Compliance Analysis
+```{r message=FALSE}
+lmm.ex5.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Compliance +", cov1, "+ PASE + EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + 
+                                        SupinebPPbaseline + Meterswalkedcov + Dualtaskcost +                                      
+                                        GaitSpeedbaseline + (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time|Compliance)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95))
+}
+```
+
+SECONDARY OUTCOME: ADAS-Cog 13
+```{r message=FALSE}
+lmm.ex5.mdl("ADASCogTotal", "ADASCogTotalbaseline", baseline.adas11.mean, baseline.adas11.se)
+```
+
+## 6.3) Secondary physical outcomes (Gait Speed, SPBB, PPA, Quad Strength, PASE, Pulse Wave Velocity)
+
+Function for LMM for Compliance Analysis
+```{r message=FALSE}
+lmm.ex6.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Compliance +", cov1, "+ EDU + Sex + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  means.1 <- lsmeans(model, ~Group|time|Compliance)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  return(list(summary=modelsummary, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95))
+}
+```
+
+SECONDARY OUTCOME: Gait Speed
+```{r message=FALSE}
+lmm.ex6.mdl("GaitSpeed", "GaitSpeedbaseline", baseline.Gait.mean, baseline.Gait.se)
+```
+
+SECONDARY OUTCOME: SPPB
+```{r message=FALSE}
+lmm.ex6.mdl("SPPB", "SPPBbaseline", baseline.SPPB.mean, baseline.SPPB.se)
+```
+
+SECONDARY OUTCOME: PPA
+```{r message=FALSE}
+lmm.ex6.mdl("PPAScore", "PPAScorebaseline", baseline.PPA.mean, baseline.PPA.se)
+```
+
+SECONDARY OUTCOME: QUAD STRENGTH
+```{r message=FALSE}
+lmm.ex6.mdl("MaxQuadStrength", "MaxQuadStrengthbaseline", baseline.Quad.mean, baseline.Quad.se)
+```
+
+SECONDARY OUTCOME: PASE
+```{r message=FALSE}
+lmm.ex6.mdl("PASE", "PASEbaseline", baseline.PASE.mean, baseline.PASE.se)
+```
+
+SECONDARY OUTCOME: Pulse Wave Velocity
+```{r message=FALSE}
+lmm.ex6.mdl("CFPWV", "CFPWVbaseline", baseline.PWV.mean, baseline.PWV.se)
+```
+
+SECONDARY OUTCOME: Timed Up and Go
+```{r message=FALSE}
+lmm.ex6.mdl("MeanTUG", "MeanTUGbaseline", baseline.TUG.mean, baseline.TUG.se)
+```
+
+# 7) Fidelity Measures for RT classes (i.e., Leg Press and Lat Pulldown)
+
+t-test function
+```{r message=FALSE}
+t.test2 <- function(m1,m2,s1,s2,n1,n2,m0=0,equal.variance=FALSE)
+{
+    if( equal.variance==FALSE ) 
+    {
+        se <- sqrt( (s1^2/n1) + (s2^2/n2) )
+        # welch-satterthwaite df
+        df <- ( (s1^2/n1 + s2^2/n2)^2 )/( (s1^2/n1)^2/(n1-1) + (s2^2/n2)^2/(n2-1) )
+    } else
+    {
+        # pooled standard deviation, scaled by the sample sizes
+        se <- sqrt( (1/n1 + 1/n2) * ((n1-1)*s1^2 + (n2-1)*s2^2)/(n1+n2-2) ) 
+        df <- n1+n2-2
+    }      
+    t <- (m1-m2-m0)/se 
+    dat <- c(m1-m2, se, t, 2*pt(-abs(t),df))    
+    names(dat) <- c("Difference of means", "Std Error", "t", "p-value")
+    return(dat) 
+}
+```
+
+## 7.1) Leg Press
+Values for t-test for Leg Press. Mean (SD)
+Baseline (N= 42): 1110.67 (313.47)
+Midpoint (N= 41): 1323.71 (428.11)
+Final (N=32): 1623.22 (628.23)
+
+Baseline vs. Midpoint
+```{r message=FALSE}
+x1 <- 1110.67
+sd1 <- 313.47
+n1 <- 42
+x2 <- 1323.71
+sd2 <- 428.11
+n2 <- 41
+
+t.test2(x1, x2, sd1, sd2, n1, n2)
+```
+
+
+Baseline vs. Final
+```{r message=FALSE}
+x3 <- 1110.67
+sd3 <- 313.47
+n3 <- 42
+x4 <- 1623.22
+sd4 <- 628.23
+n4 <- 32
+
+t.test2(x3, x4, sd3, sd4, n3, n4)
+```
+
+## 7.2) Lat Pulldown
+Values for t-test for Lat Pulldown. Mean (SD)
+Baseline (N= 41): 219.17 (57.22)
+Midpoint (N= 40): 266.38 (72.88)
+Final (N= 34): 290.41 (84.24)
+
+Baseline vs. Midpoint
+```{r message=FALSE}
+x5 <- 219.17
+sd5 <- 57.22
+n5 <- 41
+x6 <- 266.38
+sd6 <- 72.88
+n6 <- 40
+
+t.test2(x5, x6, sd5, sd6, n5, n6)
+```
+
+
+Baseline vs. Final
+```{r message=FALSE}
+x7 <- 219.17
+sd7 <- 57.22
+n7 <- 41
+x8 <- 290.41
+sd8 <- 84.24
+n8 <- 34
+
+t.test2(x7, x8, sd7, sd8, n7, n8)
+```
+
+
+# 8) Sex Differences in Primary Model
+
+## 8.1) Set-up
+
+Post-hoc Contrast Statements
+```{r}
+#EX vs. BAT differences at 6 months between males and females
+c1 = matrix(c(0,1,0,0,0,-1,0,0))
+c2 = matrix(c(1,0,0,0,-1,0,0,0))
+c1st = c1 - c2
+
+#EX vs. BAT differences at 12 months between males and females
+c3 = matrix(c(0,0,0,1,0,0,0,-1))
+c4 = matrix(c(0,0,1,0,0,0,-1,0))
+c2nd = c3 - c4
+```
+
+
+Create dataframes for examining within group differences (CON, INT, CON, INT)
+```{r}
+
+baseline.males<-subset(Tableone.df, Sex=="Male")
+baseline.females<-subset(Tableone.df, Sex=="Female")
+
+baseline.sex.adasplusDSST.mean <- cbind(c(-0.20, -0.32, -0.20, -0.32, 0.05, 0.14, 0.05, 0.14))
+baseline.sex.adasplusDSST.se <-cbind(c(0.15, 0.12, 0.15, 0.12, 0.18, 0.13, 0.18, 0.13))
+
+baseline.sex.adas11.mean <-cbind(c(13.49, 12.62, 13.49, 12.62, 14.99, 15.19, 14.99, 15.19))
+baseline.sex.adas11.se <-cbind(c(1.12, 0.94, 1.12, 0.94, 1.32, 0.94, 1.32, 0.94))
+
+baseline.sex.Gait.mean <-cbind(c(1.14, 1.15, 1.14, 1.15, 1.12, 1.21, 1.12, 1.21))
+baseline.sex.Gait.se <-cbind(c(0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05))
+
+baseline.sex.SPPB.mean <- cbind(c(10.28, 10.35, 10.28, 10.35, 10.41, 10.00, 10.41, 10.00))
+baseline.sex.SPPB.se <-cbind(c(0.32, 0.26, 0.32, 0.26, 0.35, 0.43, 0.35, 0.43))
+
+baseline.sex.PPA.mean <-cbind(c(1.52, 1.67, 1.52, 1.67, 1.83, 2.04, 1.83, 2.04))
+baseline.sex.PPA.se <-cbind(c(0.16, 0.20, 0.16, 0.20, 0.27, 0.30, 0.27, 0.30))
+
+baseline.sex.Quad.mean <-cbind(c(24.97, 24.10, 24.97, 24.10, 41.12, 34.93, 41.12, 34.93))
+baseline.sex.Quad.se <-cbind(c(1.01, 1.75, 1.01, 1.75, 3.47, 4.59, 3.47, 4.59))
+
+baseline.sex.PASE.mean <- cbind(c(108.44, 99.28, 108.44, 99.28, 120.03, 104.36, 120.03, 104.36))
+baseline.sex.PASE.se <- cbind(c(10.60, 7.17, 10.60, 7.17, 13.67, 9.04, 13.67, 9.04))
+
+baseline.sex.PWV.mean <- cbind(c(9.62, 11.14, 9.62, 11.14, 10.14, 10.25, 10.14, 10.25))
+baseline.sex.PWV.se <- cbind(c(0.66, 0.87, 0.66, 0.88, 1.14, 0.83, 1.14, 0.83))
+
+baseline.sex.TUG.mean <- cbind(c(10.03, 9.06, 10.03, 9.06, 8.95, 10.58, 8.95, 10.58))
+baseline.sex.TUG.se <- cbind(c(0.56, 0.36, 0.56, 0.36, 0.53, 0.75, 0.53, 0.75))
+```
+
+
+## 8.2) Primary outcome (ADAS-Cog Plus)
+
+Function to conduct LMM for outcome
+```{r message=FALSE}
+lmm.sex.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Sex +", cov1, "+ PASEbaseline + EDU + ADASCOGPlusDSSTsebaseline +
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov + 
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  modelanova <- anova(model)
+  means.1 <- lsmeans(model, ~Group|time|Sex)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  posthoc<-contrast(means.1, list(c1st, c2nd), by=NULL)
+  posthoc_95ci<-confint(posthoc, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[4])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[5])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1,0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+
+  
+  return(list(summary=modelsummary, anova_results = modelanova, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, post_hoc=posthoc, post_hoc_95ci=posthoc_95ci, within_group=testframe))
+}
+```
+
+PRIMARY OUTCOME: ADAS-Cog Plus
+```{r message=FALSE}
+lmm.sex.mdl("ADASCOGPlusDSST", "ADASCOGPlusDSSTbaseline", baseline.sex.adasplusDSST.mean, baseline.sex.adasplusDSST.se)
+```
+
+
+
+## 8.3) Secondary cognitive outcome (ADAS-Cog 13)
+
+Function to conduct LMM for outcome
+```{r message=FALSE}
+lmm.sex2.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Sex +", cov1, "+ PASEbaseline + EDU + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel + SupinebPPbaseline + Meterswalkedcov + 
+                                        Dualtaskcost + GaitSpeedbaseline +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  modelanova <- anova(model)
+  means.1 <- lsmeans(model, ~Group|time|Sex)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  posthoc<-contrast(means.1, list(c1st, c2nd), by=NULL)
+  posthoc_95ci<-confint(posthoc, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[4])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[5])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1,0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+  
+  return(list(summary=modelsummary, anova_results = modelanova, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, post_hoc=posthoc, post_hoc_95ci=posthoc_95ci, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: ADAS-Cog 13
+```{r message=FALSE}
+lmm.sex2.mdl("ADASCogTotal", "ADASCogTotalbaseline", baseline.sex.adas11.mean, baseline.sex.adas11.se)
+```
+
+
+## 8.4) Secondary physical outcomes (Gait Speed, SPPB, PPA, Quad Strength, PASE, Pulse-Wave Velocity)
+
+Function to conduct LMM for outcomes of gait speed, SPPB, PPA, Quad Strength, PASE, and Pulse-Wave Velocity
+```{r message=FALSE}
+lmm.sex3.mdl<- function(y,cov1,baselinemean, baselinese){
+  model <- lmer(as.formula(paste0(y, "~factor(Group)*factor(time)*Sex +", cov1, "+ EDU + 
+                                        FazekasScore + FraminghamRiskScoreBloodPanel +
+                                  (1|ID)")), data= final)
+  modelsummary <- summary(model)
+  modelanova <- anova(model)
+  means.1 <- lsmeans(model, ~Group|time|Sex)
+  contrasts <- contrast(means.1, "trt.vs.ctrl", adj="none")
+  conf.95<-confint(contrasts, parm, level = 0.95)
+  posthoc<-contrast(means.1, list(c1st, c2nd), by=NULL)    
+  posthoc_95ci<-confint(posthoc, parm, level = 0.95)
+  within.means.frame<-as.data.frame(means.1)
+  within.means<-as.numeric(as.character(unlist(within.means.frame[4])))
+  within.means.se<-as.numeric(as.character(unlist(within.means.frame[5])))
+  baselinemean.1<-as.numeric(paste0(baselinemean))
+  baselinese.1<-as.numeric(paste0(baselinese))
+  groups.frame<-cbind(c(0,1,0,1,0,1,0,1))
+  testframe<-as.data.frame(cbind(groups.frame,baselinemean.1,baselinese.1,within.means,within.means.se))
+  testframe$within.diff.means<- testframe$baselinemean - testframe$within.means
+  testframe$within.diff.se<- sqrt(testframe$baselinese^2 + testframe$within.means.se^2)
+  testframe$within.diff_LL<-testframe$baselinemean - testframe$within.means - 1.96*testframe$within.diff.se
+  testframe$within.diff_UL<-testframe$baselinemean - testframe$within.means + 1.96*testframe$within.diff.se
+
+  
+  return(list(summary=modelsummary, anova_results = modelanova, lsmeans=means.1, group_contrasts=contrasts, contrasts_ci.95=conf.95, post_hoc=posthoc, post_hoc_95ci=posthoc_95ci, within_group=testframe))
+}
+```
+
+SECONDARY OUTCOME: Gait Speed
+```{r}
+lmm.sex3.mdl("GaitSpeed", "GaitSpeedbaseline", baseline.sex.Gait.mean, baseline.sex.Gait.se)
+```
+
+SECONDARY OUTCOME: SPPB
+```{r}
+lmm.sex3.mdl("SPPB", "SPPBbaseline", baseline.sex.SPPB.mean, baseline.sex.SPPB.se)
+```
+
+SECONDARY OUTCOME: PPA
+```{r message=FALSE}
+lmm.sex3.mdl("PPAScore", "PPAScorebaseline", baseline.sex.PPA.mean, baseline.sex.PPA.se)
+```
+
+SECONDARY OUTCOME: Quad Strength
+```{r message=FALSE}
+lmm.sex3.mdl("MaxQuadStrength", "MaxQuadStrengthbaseline", baseline.sex.Quad.mean, baseline.sex.Quad.se)
+```
+
+SECONDARY OUTCOME: PASE
+```{r message=FALSE}
+lmm.sex3.mdl("PASE", "PASEbaseline", baseline.sex.PASE.mean, baseline.sex.PASE.se)
+```
+
+SECONDARY OUTCOME: Pulse Wave Velocity
+```{r message=FALSE}
+lmm.sex3.mdl("CFPWV", "CFPWVbaseline", baseline.sex.PWV.mean, baseline.sex.PWV.se)
+```
+
+SECONDARY OUTCOME: Timed Up and Go
+```{r message=FALSE}
+lmm.sex3.mdl("MeanTUG", "MeanTUGbaseline", baseline.sex.TUG.mean, baseline.sex.TUG.se)
+```
